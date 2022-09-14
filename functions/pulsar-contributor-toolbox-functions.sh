@@ -869,7 +869,11 @@ function _github_client() {
 function _get_cancel_urls() {
     run_status="${1:-failure}"
     # API reference https://docs.github.com/en/rest/reference/actions#list-workflow-runs-for-a-repository
-    _github_get "/actions/runs?actor=${PR_USER}&branch=${PR_BRANCH}&status=${run_status}&per_page=100" | \
+    local actionsurl="/actions/runs?branch=${PR_BRANCH}&status=${run_status}&per_page=100"
+    if [[ -n "${PR_USER}" && "${PR_USER}" != "any" ]]; then
+      actionsurl="${actionsurl}&actor=${PR_USER}"
+    fi
+    _github_get "$actionsurl" | \
       {
         if [ -n "$HEAD_SHA" ]; then
           jq -r --arg head_sha "${HEAD_SHA}" '.workflow_runs[] | select(.head_sha==$head_sha) | .cancel_url'
@@ -936,8 +940,48 @@ function ptbx_cancel_old_runs() {
     fi
     for url in $urls; do
       echo "cancelling $url"
-      _github_client -X DELETE "${url}"
+      _github_client -X POST "${url}"
     done
+    ((page++))
+  done
+  )
+}
+
+function ptbx_enable_all_workflows() {
+  (
+  local action=${1:-"enable"}
+  if [ -n "$ZSH_NAME" ]; then
+    set -y
+  fi
+  exec {results_fd}< <(_github_get "/actions/workflows?per_page=100" | jq -r '.workflows[] | [.name,.url,.html_url] | @tsv')
+  while IFS=$'\t' read -r name url html_url <&${results_fd}; do
+    echo "${name} ${html_url}"
+    _github_client -X PUT "${url}/${action}"
+  done
+  )
+}
+
+
+function ptbx_cancel_pending_runs() {
+  (
+  local skip=${1:-0}
+  if [ -n "$ZSH_NAME" ]; then
+    set -y
+  fi
+  local page=1
+  while true; do
+    exec {runs_fd}< <(_github_get "/actions/runs?page=$page&status=pending&created=<$(date -I --date="3 days ago")&per_page=100" | jq -r '.workflow_runs[] | select(.status=="pending" and .conclusion==null) | [.html_url,.cancel_url] | @tsv')
+    local notempty=0
+    while IFS=$'\t' read -r html_url cancel_url <&${runs_fd}; do
+      notempty=1
+      echo "${html_url}"
+      if [[ $skip != 1 ]]; then
+        _github_client -X POST "${cancel_url}"
+      fi
+    done
+    if [[ $notempty == 0 ]]; then
+      break
+    fi
     ((page++))
   done
   )
