@@ -42,6 +42,8 @@ EOF
 diagdir=/tmp/diagnostics$$
 set -xe
 kubectl exec "$@" -- bash -c "${diag_script}" -- $diagdir
-diagnostics_file="jvm_diagnostics_$(date +%F-%H%M%S).tar.gz"
+# from https://www.cyberciti.biz/faq/linux-unix-bsd-apple-osx-bash-get-last-argument/
+for cur_pod_name in "$@"; do :; done
+diagnostics_file="jvm_diagnostics_${cur_pod_name/pod\//}_$(date +%F-%H%M%S).tar.gz"
 kubectl exec -q "$@" -- bash -c "cd $diagdir && tar zcf - * && rm -rf $diagdir" > "${diagnostics_file}"
 echo "diagnostics information in ${diagnostics_file}"
