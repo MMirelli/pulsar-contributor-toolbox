@@ -729,6 +729,34 @@ function ptbx_copy_ds_helm_chart_images_to_crc() {
   )
 }
 
+# This is useful whenever a base docker image is not buildable from the
+# current HEAD.
+function ptbx_build_pulsar_snapshot_and_replace_libs_in_pulsar_all_docker_image() {
+    # ptbx_build_all
+    local base_docker_image=${1:-"cbornet/pulsar:3.0.0"}
+    (
+        ptbx_cd_pulsar_dir
+        local cur_rev=$(git -C $PULSAR_DEV_DIR/ rev-parse HEAD | cut -c 1-8)
+        docker pull "${base_docker_image}"
+        mkdir -p "/tmp/${cur_rev}"
+        local pulsar_untarred_dir=$(find "/tmp/${cur_rev}" -name apache-pulsar-* |
+                                        grep SNAPSHOT |
+                                        sed 's/.*\///')
+        if [[ -z ${pulsar_untarred_dir} || ! -d /tmp/${cur_rev}/${pulsar_untarred_dir} ]]; then
+            tar -C "/tmp/${cur_rev}" -xvf "./docker/pulsar/target/docker/pulsar/tmp/docker-build.tar" "target/pulsar-server-distribution-*-bin.tar.gz"
+            pulsar_version=$(find "/tmp/${cur_rev}/target" -name pulsar-server-distribution-*-bin.tar.gz |
+                                 sed -e 's/.*pulsar-server-distribution-//' -e 's/-bin.tar.gz//')
+            pulsar_untarred_dir="apache-pulsar-${pulsar_version}"
+            tar -C "/tmp/${cur_rev}" -xvf /tmp/"${cur_rev}"/target/pulsar-server-distribution-*-bin.tar.gz "${pulsar_untarred_dir}/lib"
+            
+            rm -rf "/tmp/${cur_rev}/target"
+        fi
+        echo pulsar_untarred_dir=${pulsar_untarred_dir}
+        echo pulsar_version=${pulsar_version}
+        docker run --rm -it --volume="/tmp/${cur_rev}/${pulsar_untarred_dir}/lib:/pulsar/lib" "${base_docker_image}"
+    )
+}
+
 function _ptbx_upload_encrypted() {
   local file_name="$1"
   local recipient="$2"
