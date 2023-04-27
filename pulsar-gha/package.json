@@ -1,0 +1,12 @@
+{
+  "name": "pulsar-gha",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@octokit/core": "^4.0.5",
+    "@octokit/plugin-retry": "^3.0.9",
+    "@octokit/rest": "^19.0.4",
+    "axios": "^0.27.2"
+  }
+}

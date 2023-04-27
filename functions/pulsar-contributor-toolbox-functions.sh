@@ -48,8 +48,14 @@ function ptbx_run_quick_check() {
 function ptbx_build_coremodules() {
   (
     ptbx_cd_git_root
-    ptbx_clean_snapshots
-    mvn -Pcore-modules,-main -T 1C clean install -DskipTests -Dspotbugs.skip=true "$@"
+    local clean_param="clean"
+    if [[ "$1" == "--noclean" || "$1" == "-nc" ]]; then
+      clean_param=""
+      shift
+    else
+      ptbx_clean_snapshots
+    fi
+    mvn -Pcore-modules,-main -T 1C $clean_param install -DskipTests -Dspotbugs.skip=true "$@"
   )
 }
 
@@ -283,8 +289,9 @@ function ptbx_gitpush_to_forked() {
 function ptbx_git_sync_forked_master_with_upstream() {
   (
     git fetch origin
-    git update-ref refs/heads/master origin/master
-    git push -f forked master
+    local default_branch=$(ptbx_detect_default_branch)
+    git update-ref refs/heads/${default_branch} origin/${default_branch}
+    git push -f forked ${default_branch}
   )
 }
 
@@ -410,9 +417,14 @@ function ptbx_upload_log_to_gist() {
 }
 
 function ptbx_project_version() {
-  # prints out the project version and nothing else
-  # https://maven.apache.org/plugins/maven-help-plugin/evaluate-mojo.html#forceStdout
-  mvn initialize help:evaluate -Dexpression=project.version -pl . -q -DforceStdout | sed 's/\[INFO\] \[stdout\] //' | grep -F -v '[WARN]' | tail -1
+  if command -v xmlstarlet &>/dev/null; then
+    # fast way to extract project version
+    xmlstarlet sel -t -m _:project -v _:version -n pom.xml
+  else
+    # prints out the project version and nothing else
+    # https://maven.apache.org/plugins/maven-help-plugin/evaluate-mojo.html#forceStdout
+    mvn initialize help:evaluate -Dexpression=project.version -pl . -q -DforceStdout | sed 's/\[INFO\] \[stdout\] //' | grep -F -v '[WARN]' | tail -1
+  fi
 }
 
 function ptbx_build_docker_pulsar_all_image() {
@@ -517,14 +529,49 @@ function ptbx_gh_slug() {
 }
 
 function ptbx_github_open_pr_to_own_fork() {
-  gh pr create "--repo=$(ptbx_forked_repo)" --base master --head "$(git branch --show-current)" -f "$@"
+  local default_branch=$(ptbx_detect_default_branch)
+  gh pr create "--repo=$(ptbx_forked_repo)" --base "${default_branch}" --head "$(git branch --show-current)" -f "$@"
 }
+
+function ptbx_detect_default_branch() {
+  if [[ "$(git branch --list -r origin/main | wc -l)" == "1" ]]; then
+    echo main
+  else
+    echo master
+  fi
+}
+
 
 function ptbx_github_open_pr() {
   local github_user="$(ptbx_forked_repo)"
   github_user="${github_user%/*}"
-  gh pr create "--repo=$(ptbx_gh_slug origin)" --base master --head "$github_user:$(git branch --show-current)" -w
+  local default_branch=$(ptbx_detect_default_branch)
+  gh pr create "--repo=$(ptbx_gh_slug origin)" --base "${default_branch}" --head "$github_user:$(git branch --show-current)" -w
 }
+
+function ptbx_github_test_pr_in_own_fork() {
+  local github_user="$(ptbx_forked_repo)"
+  github_user="${github_user%/*}"
+  local pr_json=$(curl -s "https://api.github.com/repos/$(ptbx_gh_slug origin)/pulls?head=${github_user}:$(git branch --show-current)" |jq '.[0]')
+  if printf "%s" "${pr_json}" | jq --arg github_user "${github_user}" -e 'select(.user.login == $github_user)' &> /dev/null; then
+    local fork_pr_title=$(printf "%s" "${pr_json}" | jq -r '"[run-tests] " + .title')
+    local pr_url=$(printf "%s" "${pr_json}" | jq -r '.html_url')
+    local fork_pr_body="This PR is for running tests for upstream PR ${pr_url}."
+    ptbx_git_sync_forked_master_with_upstream
+    ptbx_github_open_pr_to_own_fork -b "${fork_pr_body}" -t "${fork_pr_title}"
+    local fork_pr_json=$(curl -s "https://api.github.com/repos/$(ptbx_forked_repo)/pulls?head=$(git branch --show-current)" |jq '.[0]')
+    local fork_pr_url=$(printf "%s" "${fork_pr_json}" | jq -r '.html_url')
+    if [ -n "${fork_pr_url}" ]; then
+      local pr_body_updated=$(printf "%s" "${pr_json}" | jq --arg fork_pr_url "${fork_pr_url}" -r '.body | sub("(?s)<!-- ENTER URL HERE.*?-->";$fork_pr_url)')
+      if [ -n "${pr_body_updated}" ]; then
+        gh pr edit "${pr_url}" --body "${pr_body_updated}"
+      fi
+    fi
+  else
+    echo "Cannot find PR for current branch."
+  fi
+}
+
 
 function ptbx_reset_iptables() {
   (
@@ -546,7 +593,8 @@ EOF
 
 # shows the tracking branch name, usually origin/master
 function ptbx_git_upstream_branch() {
-  git rev-parse --abbrev-ref master@{upstream}
+  local default_branch=$(ptbx_detect_default_branch)
+  git rev-parse --abbrev-ref "${default_branch}@{upstream}"
 }
 
 # soft resets all changes to the upstream, useful for re-committing changes in a branch
@@ -1049,4 +1097,9 @@ function ptbx_video_speedup() {
   local speedup="${2:-"1.25"}"
   local speedup_inverted="$(echo "scale=3; 1/${speedup}" | bc | sed 's/^\./0./')"
   ffmpeg -i "$video" -filter_complex "[0:v]setpts=${speedup_inverted}*PTS[v];[0:a]atempo=${speedup}[a]" -map "[v]" -map "[a]" "${video_new}"
+}
+
+function ptbx_split_splunk_threaddumps() {
+  local jsonfile="$1"
+  jq  '.result._raw | fromjson | {"message": .message | join("\n")} | select(.message | contains("Full thread dump"))' "$jsonfile" |jq -s . |mlr --ijson --opprint --ho put -q 'begin { @ts=systimeint(); }; emit >"/tmp/threaddump".@ts."_".NR.".txt", $message;'
 }
