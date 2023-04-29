@@ -753,7 +753,7 @@ function ptbx_build_pulsar_snapshot_and_replace_libs_in_pulsar_all_docker_image(
         fi
         echo pulsar_untarred_dir=${pulsar_untarred_dir}
         echo pulsar_version=${pulsar_version}
-        docker run --rm -it --volume="/tmp/${cur_rev}/${pulsar_untarred_dir}/lib:/pulsar/lib" "${base_docker_image}"
+        docker run -it --volume="/tmp/${cur_rev}/${pulsar_untarred_dir}/lib:/pulsar/lib-new" "${base_docker_image}" bash -c "cp /pulsar/lib-new/* /pulsar/lib && rm -rf /pulsar/lib-new"
     )
 }
 
