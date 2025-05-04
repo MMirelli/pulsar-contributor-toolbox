@@ -10,7 +10,7 @@ Include the functions in your `~/.zshrc` or `~/.bashrc` file:
 ```
 export PULSAR_CONTRIBUTOR_TOOLBOX=$HOME/workspace-pulsar/pulsar-contributor-toolbox
 . $PULSAR_CONTRIBUTOR_TOOLBOX/functions/pulsar-contributor-toolbox-functions.sh
-PULSAR_DEV_DIR=$HOME/workspace-pulsar/pulsar
+export PULSAR_DEV_DIR=$HOME/workspace-pulsar/pulsar
 ```
 
 ## Supported environment
