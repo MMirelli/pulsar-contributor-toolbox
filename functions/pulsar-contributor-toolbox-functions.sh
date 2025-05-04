@@ -48,7 +48,7 @@ function ptbx_run_quick_check() {
 
 function ptbx_build_coremodules() {
   (
-    ptbx_cd_git_root
+    ptbx_cd_pulsar_dir
     local clean_param="clean"
     if [[ "$1" == "--noclean" || "$1" == "-nc" ]]; then
       clean_param=""
@@ -62,7 +62,7 @@ function ptbx_build_coremodules() {
 
 function ptbx_build_all() {
   (
-    ptbx_cd_git_root
+    ptbx_cd_pulsar_dir
     ptbx_clean_snapshots
     command mvn -T 1C clean install -DskipTests -Dspotbugs.skip=true -DShadeTests -DintegrationTests -DBackwardsCompatTests -Dtest=NoneTest -DfailIfNoTests=false "$@"
   )
